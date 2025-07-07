@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LIBRAS AI</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the typing animation and overall theme */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8F8F8; /* Off-white background */
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* Prevent scrollbars due to animation */
+        }
+
+        /* Typing animation for the main phrase */
+        .typing-animation {
+            overflow: hidden; /* Ensures the text is hidden before it's typed */
+            white-space: nowrap; /* Keeps the text on a single line */
+            animation: typing 3.5s steps(40, end) forwards, blink-caret .75s step-end infinite;
+            width: 0; /* Starts with zero width */
+        }
+
+        /* Keyframes for the typing effect */
+        @keyframes typing {
+            from { width: 0 }
+            to { width: 100% }
+        }
+
+        /* Keyframes for the blinking caret effect */
+        @keyframes blink-caret {
+            from, to { border-color: transparent }
+            50% { border-color: #A78BFA; } /* Light purple caret */
+        }
+
+        /* General button styling */
+        .btn-primary {
+            background-color: #A78BFA; /* Light purple */
+            color: white;
+            padding: 0.75rem 2rem;
+            border-radius: 0.75rem; /* Rounded corners */
+            font-weight: 600;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+        }
+
+        .btn-primary:hover {
+            background-color: #8B5CF6; /* Slightly darker purple on hover */
+            transform: translateY(-2px);
+        }
+
+        /* Card-like containers for minimalist design */
+        .card {
+            background-color: white;
+            border-radius: 1.5rem; /* More rounded corners for cards */
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1); /* Stronger shadow for cards */
+            padding: 2rem;
+            text-align: center;
+            max-width: 90%; /* Responsive width */
+            width: 600px;
+        }
+
+        /* Webcam container styling */
+        .webcam-container {
+            position: relative;
+            width: 100%;
+            padding-top: 75%; /* 4:3 aspect ratio (height is 75% of width) */
+            background-color: #E0E0E0; /* Light grey placeholder */
+            border-radius: 1rem;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 5px 10px rgba(0, 0, 0, 0.08);
+        }
+
+        .webcam-container video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Ensures the video fills the container */
+            border-radius: 1rem;
+        }
+
+        /* Translation output area */
+        .translation-output {
+            background-color: #F0F0F0; /* Slightly darker off-white */
+            border-radius: 0.75rem;
+            padding: 1rem 1.5rem;
+            min-height: 80px; /* Minimum height for the text area */
+            text-align: left;
+            font-size: 1.125rem; /* Larger font size */
+            color: #555;
+            word-wrap: break-word; /* Ensures long words wrap */
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06); /* Inner shadow */
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .card {
+                padding: 1.5rem;
+            }
+            .webcam-container {
+                padding-top: 56.25%; /* 16:9 aspect ratio for mobile */
+            }
+            .translation-output {
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen bg-gray-100">
+
+    <!-- Landing Page Section -->
+    <div id="landing-page" class="flex flex-col items-center justify-center space-y-8">
+        <!-- Logo -->
+        <div class="absolute top-6 left-6">
+            <!-- Updated src to point to logo.png -->
+            <img src="logo.png" alt="LIBRAS AI Logo" class="w-24 h-24 rounded-full shadow-md">
+        </div>
+
+        <!-- Main Phrase with Typing Animation -->
+        <h1 class="text-3xl md:text-4xl font-semibold text-gray-800 typing-animation border-r-2 border-transparent">
+            LIBRAS AI. O tradutor de LIBRAS em tempo real.
+        </h1>
+
+        <!-- Start Button -->
+        <button id="start-button" class="btn-primary">
+            Começar
+        </button>
+    </div>
+
+    <!-- Translator Page Section (Initially hidden) -->
+    <div id="translator-page" class="card hidden flex-col items-center justify-center space-y-6">
+        <!-- Logo on Translator Page -->
+        <div class="absolute top-6 left-6">
+            <!-- Updated src to point to logo.png -->
+            <img src="logo.png" alt="LIBRAS AI Logo" class="w-24 h-24 rounded-full shadow-md">
+        </div>
+
+        <h2 class="text-2xl md:text-3xl font-semibold text-gray-800 mb-4">Tradução em Tempo Real</h2>
+
+        <!-- Webcam Container -->
+        <div class="webcam-container">
+            <video id="webcam-feed" autoplay playsinline></video>
+        </div>
+
+        <!-- Translation Output Area -->
+        <div class="w-full">
+            <label for="translation-text" class="block text-lg font-medium text-gray-700 mb-2 text-left">Tradução:</label>
+            <div id="translation-text" class="translation-output w-full">
+                <!-- Translated text will appear here -->
+                Aguardando tradução...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get references to HTML elements
+        const landingPage = document.getElementById('landing-page');
+        const translatorPage = document.getElementById('translator-page');
+        const startButton = document.getElementById('start-button');
+        const webcamFeed = document.getElementById('webcam-feed');
+        const translationText = document.getElementById('translation-text');
+
+        // Function to handle the start button click
+        startButton.addEventListener('click', () => {
+            landingPage.classList.add('hidden'); // Hide the landing page
+            translatorPage.classList.remove('hidden'); // Show the translator page
+            startWebcam(); // Start the webcam when navigating to the translator page
+        });
+
+        // Function to start the webcam
+        async function startWebcam() {
+            try {
+                // Request access to the user's camera
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamFeed.srcObject = stream; // Set the video source to the webcam stream
+
+                // Placeholder for real-time translation (replace with your ML model integration)
+                // This part would typically send video frames to your Django backend
+                // which then communicates with your ML model.
+                setInterval(() => {
+                    // Simulate real-time translation updates
+                    const dummyTranslations = [
+                        "Olá",
+                        "Como vai?",
+                        "Eu sou",
+                        "LIBRAS",
+                        "Tradução",
+                        "Em tempo real",
+                        "Obrigado",
+                        "Até logo!"
+                    ];
+                    const randomTranslation = dummyTranslations[Math.floor(Math.random() * dummyTranslations.length)];
+                    translationText.textContent = randomTranslation;
+                }, 3000); // Update every 3 seconds for demonstration
+            } catch (err) {
+                console.error("Erro ao acessar a webcam: ", err);
+                translationText.textContent = "Erro ao acessar a webcam. Por favor, verifique as permissões.";
+            }
+        }
+
+        // Django integration (conceptual)
+        // For a full Django application, you would have:
+        // 1. A Django project (e.g., `libras_translator_project`)
+        // 2. A Django app (e.g., `translator_app`)
+        // 3. `urls.py` in your project and app to define routes (e.g., `/` for landing, `/translate/` for translator)
+        // 4. `views.py` to render these HTML templates.
+        // 5. A mechanism (e.g., WebSockets or AJAX long-polling) to send webcam frames to your Django backend
+        //    and receive translated text back from your ML model.
+
+        // Example Django `views.py` (conceptual):
+        /*
+        from django.shortcuts import render
+        from django.http import JsonResponse
+        import json
+
+        def landing_page_view(request):
+            return render(request, 'translator_app/index.html') # This HTML would be served by Django
+
+        def translate_view(request):
+            if request.method == 'POST':
+                # Here you would receive video frames from the frontend
+                # and pass them to your ML model.
+                # For example:
+                # frame_data = request.FILES['video_frame'].read()
+                # translated_text = your_ml_model.predict(frame_data)
+                # return JsonResponse({'translation': translated_text})
+                pass
+            return JsonResponse({'error': 'Invalid request'}, status=400)
+        */
+
+        // Example Django `urls.py` (conceptual):
+        /*
+        from django.urls import path
+        from . import views
+
+        urlpatterns = [
+            path('', views.landing_page_view, name='landing_page'),
+            path('translate/', views.translate_view, name='translate'),
+        ]
+        */
+    </script>
+</body>
+</html>
