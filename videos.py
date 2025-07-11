@@ -1,135 +1,137 @@
-# ===================================================================
-# SCRIPT PARA PROCESSAMENTO DE VÍDEOS DE LIBRAS PARA LANDMARKS
-# TCC - Aline e Gabi
-#
-# O que este script faz:
-# 1. Lê os vídeos da pasta do Google Drive.
-# 2. Usa o MediaPipe para extrair pontos-chave (landmarks) do rosto,
-#    mãos e corpo em cada frame do vídeo.
-# 3. Salva a sequência de landmarks de cada vídeo como um arquivo .npy
-#    em uma nova pasta de dataset, mantendo a organização por gestos.
-# ===================================================================
-
 import cv2
 import os
 import numpy as np
-import mediapipe as mp
+import random
 from glob import glob
-import time
+import mediapipe as mp
 
-# ------------------- 1. CONFIGURAÇÃO DE CAMINHOS -------------------
-
-BASE_DRIVE_PATH = r"G:\Meu Drive\TCC - Aline e Gabi"
-
-# O script vai procurar seus vídeos nesta pasta:
-VIDEOS_BASE_PATH = os.path.join(BASE_DRIVE_PATH, "videos_libras")
-
-# O novo dataset com os arquivos .npy será salvo aqui:
-LANDMARKS_OUTPUT_PATH = os.path.join(BASE_DRIVE_PATH, "TCC_Dataset_Landmarks")
-
-# ------------------- 2. DESCOBERTA AUTOMÁTICA DOS VÍDEOS -------------------
-
-print("="*50)
-print("INICIANDO SCRIPT DE PROCESSAMENTO DE DADOS")
-print("="*50)
-
-# Verificação de segurança para garantir que o caminho principal existe
-if not os.path.exists(VIDEOS_BASE_PATH):
-    print(f"\n[ERRO CRÍTICO]")
-    print(f"O caminho para os vídeos não foi encontrado: '{VIDEOS_BASE_PATH}'")
-    print("Por favor, verifique se a letra do drive na variável 'BASE_DRIVE_PATH' está correta.")
-    exit() # Encerra o script se o caminho estiver errado
-
-print(f"\nProcurando vídeos em: '{VIDEOS_BASE_PATH}'...")
-
-video_files = []
-# Lista todas as subpastas (que são os nomes dos gestos)
-class_names = sorted([d for d in os.listdir(VIDEOS_BASE_PATH) if os.path.isdir(os.path.join(VIDEOS_BASE_PATH, d))])
-
-if not class_names:
-    print("\n[ERRO] Nenhuma pasta de gesto foi encontrada dentro de 'videos_libras'.")
-    exit()
-
-print(f"\n{len(class_names)} classes (gestos) encontradas: {class_names}")
-
-for gesture_name in class_names:
-    # Procura por todos os arquivos .mp4 dentro de cada pasta de gesto
-    search_path = os.path.join(VIDEOS_BASE_PATH, gesture_name, "*.mp4")
-    videos_in_folder = glob(search_path)
-    for vid_path in videos_in_folder:
-        video_files.append((vid_path, gesture_name))
-
-print(f"\nTotal de {len(video_files)} vídeos encontrados para processamento.\n")
-print("-"*50)
-
-
-# ------------------- 3. INICIALIZAÇÃO DO MEDIAPIPE E FUNÇÕES -------------------
-
-# Inicializa o modelo Holístico do MediaPipe
+# Inicializa o MediaPipe Holistic
 mp_holistic = mp.solutions.holistic
-holistic = mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
-def extract_landmarks(frame):
-    """Processa um frame e extrai os landmarks, retornando um vetor numpy."""
-    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = holistic.process(image_rgb)
-    
-    # Extrai e achata os landmarks. Se não detectar, cria um vetor de zeros.
-    # Isso garante que todos os vetores de saída tenham o mesmo tamanho.
-    pose = np.array([[res.x, res.y, res.z, res.visibility] for res in results.pose_landmarks.landmark]).flatten() if results.pose_landmarks else np.zeros(33 * 4)
-    face = np.array([[res.x, res.y, res.z] for res in results.face_landmarks.landmark]).flatten() if results.face_landmarks else np.zeros(468 * 3)
-    lh = np.array([[res.x, res.y, res.z] for res in results.left_hand_landmarks.landmark]).flatten() if results.left_hand_landmarks else np.zeros(21 * 3)
-    rh = np.array([[res.x, res.y, res.z] for res in results.right_hand_landmarks.landmark]).flatten() if results.right_hand_landmarks else np.zeros(21 * 3)
-    
-    return np.concatenate([pose, face, lh, rh])
+def normalize_frame(frame, size=(224, 224)):
+    return cv2.resize(frame, size)
 
-# ------------------- 4. LOOP PRINCIPAL DE PROCESSAMENTO -------------------
+def get_dynamic_roi(frame):
+    with mp_holistic.Holistic(static_image_mode=True) as holistic:
+        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = holistic.process(image_rgb)
 
-start_time = time.time()
-for i, (vid_path, gesture_name) in enumerate(video_files):
-    
-    # Define onde o arquivo .npy será salvo
-    gesture_output_folder = os.path.join(LANDMARKS_OUTPUT_PATH, gesture_name)
-    os.makedirs(gesture_output_folder, exist_ok=True)
-    
-    video_basename = os.path.splitext(os.path.basename(vid_path))[0]
-    output_filename = os.path.join(gesture_output_folder, f"{video_basename}.npy")
-    
-    # Pula o vídeo se ele já foi processado anteriormente
-    if os.path.exists(output_filename):
-        print(f"({i+1}/{len(video_files)}) VÍDEO JÁ PROCESSADO: '{vid_path}'... PULANDO")
-        continue
-        
-    print(f"({i+1}/{len(video_files)}) PROCESSANDO VÍDEO: '{vid_path}'...")
-    
+        landmarks = []
+        if results.face_landmarks:
+            landmarks.extend([(lm.x, lm.y) for lm in results.face_landmarks.landmark])
+        if results.left_hand_landmarks:
+            landmarks.extend([(lm.x, lm.y) for lm in results.left_hand_landmarks.landmark])
+        if results.right_hand_landmarks:
+            landmarks.extend([(lm.x, lm.y) for lm in results.right_hand_landmarks.landmark])
+        if results.pose_landmarks:
+            landmarks.extend([(lm.x, lm.y) for lm in results.pose_landmarks.landmark])
+
+        if not landmarks:
+            return None
+
+        h, w, _ = frame.shape
+        coords = np.array([[int(x * w), int(y * h)] for x, y in landmarks])
+
+        x_min = max(np.min(coords[:, 0]) - 20, 0)
+        y_min = max(np.min(coords[:, 1]) - 20, 0)
+        x_max = min(np.max(coords[:, 0]) + 20, w)
+        y_max = min(np.max(coords[:, 1]) + 20, h)
+
+        roi = frame[y_min:y_max, x_min:x_max]
+        return roi
+
+def apply_augmentation(image):
+    # Flip horizontal com 30% de chance
+    if random.random() < 0.3:
+        image = cv2.flip(image, 1)
+
+    # Rotação leve entre -10 e +10 graus
+    angle = random.uniform(-10, 10)
+    h, w = image.shape[:2]
+    matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)
+    image = cv2.warpAffine(image, matrix, (w, h), borderMode=cv2.BORDER_REFLECT)
+
+    # Ajuste de brilho/saturação com variação menor
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[..., 1] *= random.uniform(0.95, 1.05)  # saturação
+    hsv[..., 2] *= random.uniform(0.95, 1.1)   # brilho
+    hsv = np.clip(hsv, 0, 255).astype(np.uint8)
+    image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+    # Desfoque leve com 20% de chance
+    if random.random() < 0.2:
+        ksize = 3
+        image = cv2.GaussianBlur(image, (ksize, ksize), 0)
+
+    # Ruído Gaussiano suave
+    noise = np.random.normal(0, 2, image.shape).astype(np.int16)
+    image = np.clip(image.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
+    return image
+
+def create_output_directory(base_path, gesture):
+    gesture_path = os.path.join(base_path, gesture)
+    os.makedirs(gesture_path, exist_ok=True)
+    existing_sequences = glob(os.path.join(gesture_path, "sequence_*"))
+    sequence_number = len(existing_sequences)
+    out_dir = os.path.join(gesture_path, f'sequence_{sequence_number}')
+    os.makedirs(out_dir, exist_ok=True)
+    return out_dir
+
+# === CAMINHO DO DRIVE ===
+BASE_DRIVE_PATH = r"G:\Meu Drive\TCC - Aline e Gabi"
+out_base_path = r'C:\Users\Aline\Desktop\gestures_dataset'
+
+# Busca todos os arquivos mp4 dentro da pasta e subpastas
+video_files = glob(os.path.join(BASE_DRIVE_PATH, '**', '*.mp4'), recursive=True)
+
+for vid_path in video_files:
+    gesture_name = os.path.basename(os.path.dirname(vid_path))
+    vid_name = os.path.basename(vid_path)
+    print(f"Processando vídeo: {vid_name} para o gesto: {gesture_name}")
+
     video = cv2.VideoCapture(vid_path)
-    sequence_landmarks = [] # Lista para guardar os landmarks de todos os frames do vídeo
-    
+    if not video.isOpened():
+        print(f"Erro ao abrir o vídeo: {vid_name}")
+        continue
+
+    out_dir = create_output_directory(out_base_path, gesture_name)
+    print(f"Pasta de saída criada: {out_dir}")
+
+    i = 1
     while video.isOpened():
-        ret, frame = video.read()
-        if not ret:
+        flag, frame = video.read()
+        if not flag:
             break
-        
-        # Extrai os landmarks do frame atual e adiciona à nossa sequência
-        landmarks = extract_landmarks(frame)
-        sequence_landmarks.append(landmarks)
-        
+
+        normalized_frame = normalize_frame(frame)
+        roi_frame = get_dynamic_roi(normalized_frame)
+
+        if roi_frame is None:
+            print(f"Frame {i}: Nenhum ROI detectado, salvando apenas o frame completo.")
+            roi_frame = normalized_frame
+
+        # Salva o ROI original (sem augmentation)
+        roi_original_path = os.path.join(out_dir, f"frame_{i}_roi_raw.jpg")
+        cv2.imwrite(roi_original_path, roi_frame)
+
+        # Aplica data augmentation no ROI
+        roi_augmented = apply_augmentation(roi_frame)
+
+        # Caminhos para salvar
+        normalized_frame_path = os.path.join(out_dir, f"frame_{i}.jpg")
+        roi_augmented_path = os.path.join(out_dir, f"frame_{i}_roi.jpg")
+
+        # Salva arquivos
+        cv2.imwrite(normalized_frame_path, normalized_frame)
+        cv2.imwrite(roi_augmented_path, roi_augmented)
+
+        print(f'Imagem salva: {normalized_frame_path}')
+        print(f'ROI original salva: {roi_original_path}')
+        print(f'ROI aumentada salva: {roi_augmented_path}')
+        i += 1
+
     video.release()
-    
-    # Salva a sequência completa de landmarks do vídeo em um único arquivo .npy
-    if sequence_landmarks:
-        np.save(output_filename, np.array(sequence_landmarks))
-        print(f"  -> SUCESSO! Sequência salva em '{output_filename}' com {len(sequence_landmarks)} frames.")
-    else:
-        print(f"  -> AVISO! Nenhum frame processado para o vídeo '{vid_path}'.")
+    print(f'✅ Conversão concluída para: {vid_name}\n')
 
-# ------------------- 5. FINALIZAÇÃO -------------------
-
-holistic.close() # Libera os recursos do MediaPipe
-end_time = time.time()
-
-print("\n" + "="*50)
-print("PROCESSAMENTO DE TODOS OS VÍDEOS CONCLUÍDO!")
-print(f"Tempo total de execução: {((end_time - start_time) / 60):.2f} minutos.")
-print(f"Seu novo dataset está pronto em: '{LANDMARKS_OUTPUT_PATH}'")
-print("="*50)
+print("🏁 Processamento de vídeos finalizado.")
